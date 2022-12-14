@@ -16,11 +16,11 @@ mkdir -p $ORACLE_HOME
 chown -R oracle:oinstall /u01
 chmod -R 775 /u01
 rm -f $TMP_HOME/.bash_profile
-aws s3 cp s3://fount-data/DevOps/oracle_bash_profile $TMP_HOME/.bash_profile
-aws s3 cp s3://fount-data/DevOps/LINUX.X64_193000_db_home.zip .
-aws s3 cp s3://fount-data/DevOps/oracle_silent_install $TMP_HOME
-aws s3 cp s3://fount-data/DevOps/tnsnames.ora $TMP_HOME
-aws s3 cp s3://fount-data/DevOps/listener.ora $TMP_HOME
+/usr/local/bin/aws s3 cp s3://fount-data/DevOps/oracle_bash_profile $TMP_HOME/.bash_profile
+/usr/local/bin/aws s3 cp s3://fount-data/DevOps/LINUX.X64_193000_db_home.zip $TMP_HOME
+/usr/local/bin/aws s3 cp s3://fount-data/DevOps/oracle_silent_install $TMP_HOME
+/usr/local/bin/aws s3 cp s3://fount-data/DevOps/tnsnames.ora $TMP_HOME
+/usr/local/bin/aws s3 cp s3://fount-data/DevOps/listener.ora $TMP_HOME
 chmod +x $TMP_HOME/oracle_silent_install
 sed -i "s/_HOSTNAME_/$HOSTNAME/g" $TMP_HOME/tnsnames.ora
 sed -i "s/_HOSTNAME_/$HOSTNAME/g" $TMP_HOME/listener.ora
@@ -33,9 +33,11 @@ sudo -i -u oracle bash <<EOF
         cd $ORACLE_HOME
         unzip -qo LINUX.X64_193000_db_home.zip
         sh $TMP_HOME/oracle_silent_install
+				exit 0
 EOF
 
 echo "done running as oracle user"
-/u01/app/oraInventory/orainstRoot.sh
-$ORACLE_HOME/root.sh
+sudo /u01/app/oraInventory/orainstRoot.sh
+sudo $ORACLE_HOME/root.sh
 mv $TMP_HOME/*.ora $ORACLE_HOME/network/admin
+echo "complete!"
