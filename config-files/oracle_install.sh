@@ -7,8 +7,12 @@ ORA_DATA=/oradata/ORA_DM
 S3B=DevOps/rman_backups
 
 set -ex
+
+# install required packages
 sudo yum update -y
 sudo yum install -y yum-utils oracle-database-preinstall-19c epel-release jq
+
+# download & install aws cli
 cd /tmp
 curl -LJO "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
 unzip awscli-exe-linux-x86_64.zip
@@ -29,6 +33,7 @@ chown oracle:oinstall $TMP_HOME/.bash_profile
 sed -i "s/_HOSTNAME_/$HOSTNAME/g" $TMP_HOME/tnsnames.ora
 sed -i "s/_HOSTNAME_/$HOSTNAME/g" $TMP_HOME/listener.ora
 
+# install oracle 19c as oracle user
 echo "change to oracle user"
 sudo -i -u oracle bash <<EOF
         source $TMP_HOME/.bash_profile
@@ -40,6 +45,7 @@ sudo -i -u oracle bash <<EOF
 				exit 0
 EOF
 
+# configure and change ownership
 echo "done running as oracle user"
 sudo /u01/app/oraInventory/orainstRoot.sh
 sudo $ORACLE_HOME/root.sh
@@ -54,6 +60,7 @@ chown -R oracle:oinstall $ORACLE_HOME/admin/ora_dm/adump
 chown -R oracle:oinstall $BACKUP
 chown -R oracle:oinstall $ORA_DATA
 
+# use aws cli to get latest backup directory on s3
 newest_file=$(/usr/local/bin/aws s3api list-objects-v2 \
 --bucket fount-data \
 --prefix $S3B/ \
