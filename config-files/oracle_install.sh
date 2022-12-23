@@ -2,10 +2,13 @@
 
 ORACLE_HOME="/u01/app/oracle/product/19.3/db_home"
 TMP_HOME=/home/oracle
+BACKUP=/orabackup/ORA_DM
+ORA_DATA=/oradata/ORA_DM
+S3B=DevOps/rman_backups
 
 set -ex
 sudo yum update -y
-sudo yum install -y yum-utils oracle-database-preinstall-19c 
+sudo yum install -y yum-utils oracle-database-preinstall-19c epel-release jq
 cd /tmp
 curl -LJO "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip"
 unzip awscli-exe-linux-x86_64.zip
@@ -22,6 +25,7 @@ rm -f $TMP_HOME/.bash_profile
 /usr/local/bin/aws s3 cp s3://fount-data/DevOps/tnsnames.ora $TMP_HOME
 /usr/local/bin/aws s3 cp s3://fount-data/DevOps/listener.ora $TMP_HOME
 chmod +x $TMP_HOME/oracle_silent_install
+chown oracle:oinstall $TMP_HOME/.bash_profile
 sed -i "s/_HOSTNAME_/$HOSTNAME/g" $TMP_HOME/tnsnames.ora
 sed -i "s/_HOSTNAME_/$HOSTNAME/g" $TMP_HOME/listener.ora
 
@@ -40,4 +44,69 @@ echo "done running as oracle user"
 sudo /u01/app/oraInventory/orainstRoot.sh
 sudo $ORACLE_HOME/root.sh
 mv $TMP_HOME/*.ora $ORACLE_HOME/network/admin
+# add port rule to firewall
+firewall-cmd --zone=public --add-port=1521/tcp --permanent
+firewall-cmd --reload
+mkdir -p $BACKUP/archivelogs $BACKUP/autobackup
+mkdir -p $ORA_DATA/controlfile $ORA_DATA/datafile
+mkdir -p $ORACLE_HOME/admin/ora_dm/adump
+chown -R oracle:oinstall $ORACLE_HOME/admin/ora_dm/adump
+chown -R oracle:oinstall $BACKUP
+chown -R oracle:oinstall $ORA_DATA
+
+newest_file=$(/usr/local/bin/aws s3api list-objects-v2 \
+--bucket fount-data \
+--prefix $S3B/ \
+--query 'sort_by(Contents, &LastModified)[-1]' | jq -r '.Key')
+echo $newest_file
+echo
+
+newest_folder=$(echo $newest_file | sed -E "s|$S3B||g" | awk -F/ '{print FS $2}')
+echo $newest_folder # contains '/' already
+echo
+
+# download newest backup
+/usr/local/bin/aws s3 cp s3://fount-data/$S3B$newest_folder $BACKUP/autobackup$newest_folder --recursive
+mv $BACKUP/autobackup$newest_folder/spfileorcl_dm.ora $ORACLE_HOME/dbs/
+mkdir -p $BACKUP/archivelogs/$DATE
+mv $BACKUP/autobackup$newest_folder/archivelogs/* $BACKUP/archivelogs/$DATE
+
+# startup
+sudo -i -u oracle bash <<EOF
+sqlplus / as sysdba <<EOL
+  startup NOMOUNT pfile=$ORACLE_HOME/dbs/spfileorcl_dm.ora;
+  exit
+EOL
+EOF
+
+# RMAN commands
+sudo -i -u oracle bash <<EOF
+rman target / <<EOL
+  restore controlfile from '${BACKUP}/autobackup${newest_folder}/ctlfile_1.ctl';
+  alter database mount;
+  crosscheck backup;
+  delete noprompt expired backup;
+  catalog start with '${BACKUP}/archivelogs$newest_folder' noprompt;
+  crosscheck archivelog all;
+  change archivelog all validate;
+  restore database;
+  recover database;
+  exit
+EOL
+EOF
+
+# alter db & test
+sudo -i -u oracle bash <<EOF
+sqlplus / as sysdba <<'EOL'
+  alter database open resetlogs;
+  alter system set log_archive_dest_1 = 'location=${BACKUP}/archivelogs';
+  select name, open_mode from v\$database;
+  select * from c\$pinpoint.reg_data fetch next 1 rows only;
+  exit
+EOL
+EOF
+
+# start listener
+sudo -i -u oracle bash <<< 'lsnrctl start'
+
 echo "complete!"
