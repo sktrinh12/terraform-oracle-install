@@ -62,9 +62,9 @@ chown -R oracle:oinstall $ORA_DATA
 
 # use aws cli to get latest backup directory on s3
 newest_file=$(/usr/local/bin/aws s3api list-objects-v2 \
---bucket fount-data \
---prefix $S3B/ \
---query 'sort_by(Contents, &LastModified)[-1]' | jq -r '.Key')
+	--bucket fount-data \
+	--prefix $S3B/ \
+	--query 'sort_by(Contents, &LastModified)[-1]' | jq -r '.Key')
 echo $newest_file
 echo
 
@@ -86,6 +86,9 @@ sqlplus / as sysdba <<EOL
 EOL
 EOF
 
+# ensure file path in init file is correct
+sed -i -E 's|(LOCATION=\/orabackup\/)|\1ORA_DM\/|g' $ORACLE_HOME/dbs/spfileorcl_dm.ora
+
 # RMAN commands
 sudo -i -u oracle bash <<EOF
 rman target / <<EOL
@@ -93,7 +96,7 @@ rman target / <<EOL
   alter database mount;
   crosscheck backup;
   delete noprompt expired backup;
-  catalog start with '${BACKUP}/archivelogs$newest_folder' noprompt;
+  catalog start with '${BACKUP}/archivelogs${newest_folder}' noprompt;
   crosscheck archivelog all;
   change archivelog all validate;
   restore database;
@@ -114,6 +117,12 @@ EOL
 EOF
 
 # start listener
-sudo -i -u oracle bash <<< 'lsnrctl start'
+sudo -i -u oracle bash <<<'lsnrctl start'
+
+# start cron service
+sudo systemctl start crond.service
+mkdir -p $BACKUP/bkpscripts
+# echo "0 5 * * 0-5 /orabackup/bkpscripts/full_backup.sh" >>cron_full_backup
+# crontab cron_full_backup
 
 echo "complete!"
