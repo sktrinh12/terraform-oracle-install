@@ -94,7 +94,7 @@ EOF
 # RMAN commands
 sudo -i -u oracle bash 2>/dev/null <<EOF
 rman target / <<EOL
-  restore controlfile from '${BACKUP}/autobackup${newest_folder}/ctlfile_1.ctl';
+  restore controlfile from autobackup;
   alter database mount;
   crosscheck backup;
   delete noprompt expired backup;
